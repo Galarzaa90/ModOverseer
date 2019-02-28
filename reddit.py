@@ -139,6 +139,7 @@ class QueueEntry:
         self.approved = kwargs.get("approved")
         self.created = datetime.datetime.utcfromtimestamp(kwargs.get("created_utc"))
         self.id = kwargs.get("id")
+        self.score: int = kwargs.get("score", 0)
 
     def __eq__(self, o: object) -> bool:
         if isinstance(o, self.__class__):

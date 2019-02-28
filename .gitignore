@@ -1,5 +1,6 @@
 config.ini
 queue.json
+logs/
 
 # IDEs
 .idea/
