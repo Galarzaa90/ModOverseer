@@ -51,5 +51,65 @@ class Reddit:
         print("Getting modqueue")
         async with self.api_session.get(f"{BASE_URL}/r/{subreddit}/about/modqueue") as resp:
             js = await resp.json()
-            print(js)
-            return js
+            if "error" in js:
+                return None
+            try:
+                children = js["data"]["children"]
+                results = []
+                for c in children:
+                    results.append(QueueEntry(kind=c["kind"], **c["data"]))
+                return results
+            except Exception as e:
+                print(e)
+                return None
+
+
+class QueueEntry:
+    def __init__(self, kind, **kwargs):
+        self.comment_link = None
+        permalink = kwargs.get("permalink")
+        if kind == "t3":
+            self.type = "Post"
+            self.post_title = kwargs.get("title")
+            self.post_author = kwargs.get("author")
+            self.post_text = kwargs.get("selftext")
+            if permalink:
+                self.post_link = f"https://reddit.com{permalink}"
+
+        if kind == "t1":
+            self.type = "Comment"
+            self.post_title = kwargs.get("link_title")
+            self.post_link = kwargs.get("link_url")
+            self.post_author = kwargs.get("link_author")
+            if permalink:
+                self.comment_link = f"https://reddit.com{permalink}"
+
+        # Post type only
+        self.is_self = kwargs.get("is_self", False)
+        self.thumbnail = kwargs.get("thumbnail")
+        if self.thumbnail == "self":
+            self.thumbnail = None
+
+        # Comment type only
+        self.comment_author = kwargs.get("author")
+        self.comment_body = kwargs.get("body")
+
+        # Any type
+        self.reports = kwargs.get("user_reports", [])
+        self.mod_reports = kwargs.get("mod_reports", [])
+        self.post_text = kwargs.get("selftext")
+        self.comments = kwargs.get("num_comments")
+        self.ignore_reports = kwargs.get("ignore_reports")
+        self.approved = kwargs.get("approved")
+        self.created = datetime.datetime.utcfromtimestamp(kwargs.get("created_utc"))
+        self.id = kwargs.get("id")
+
+    def __eq__(self, o: object) -> bool:
+        if isinstance(o, self.__class__):
+            return self.id == o.id
+        if isinstance(o, str):
+            return self.id == o
+        return False
+
+
+
