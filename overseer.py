@@ -1,12 +1,33 @@
 import asyncio
 import configparser
 import json
+import logging
+import os
 import traceback
+from logging.handlers import TimedRotatingFileHandler
+from typing import Optional
 
 import discord
 from discord.ext import commands
 
-from reddit import QueueEntry, Reddit
+from reddit import EntryKind, QueueEntry, RedditClient
+
+os.makedirs("logs", exist_ok=True)
+
+logging_formatter = logging.Formatter('[%(asctime)s][%(levelname)s] %(message)s')
+file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
+file_handler.suffix = "%Y_%m_%d.log"
+file_handler.setFormatter(logging_formatter)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging_formatter)
+
+log = logging.getLogger("overseer")
+log.setLevel(logging.INFO)
+log.addHandler(file_handler)
+log.addHandler(console_handler)
+
+COMMENT_COLOR = discord.colour.Colour.green()
+LINK_COLOR = discord.colour.Colour.gold()
 
 
 class ModOverseer(commands.Bot):
@@ -14,8 +35,8 @@ class ModOverseer(commands.Bot):
         super().__init__(command_prefix="?")
         reddit_config = config['Reddit']
         self.subreddit = reddit_config['subreddit']
-        self.reddit = Reddit(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
-                             loop=self.loop)
+        self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
+                                   loop=self.loop)
         self.queue_map = {}
 
     async def on_ready(self):
@@ -34,6 +55,7 @@ class ModOverseer(commands.Bot):
         self.loop.create_task(self.modqueue_task())
 
     async def modqueue_task(self):
+        """Scans the mod queue periodically and keeps the queue channel updated."""
         await self.wait_until_ready()
         while self.is_ready():
             try:
@@ -56,11 +78,7 @@ class ModOverseer(commands.Bot):
                             self.queue_map[r.id] = msg.id
                         # Existing entry, update message
                         else:
-                            msg: discord.Message = None
-                            try:
-                                msg = await channel.get_message(self.queue_map[r.id])
-                            except discord.NotFound:
-                                pass
+                            msg = await self.safe_get_message(channel, self.queue_map[r.id])
                             if msg:
                                 await msg.edit(embed=self.embed_from_queue_entry(r))
                             else:
@@ -68,9 +86,8 @@ class ModOverseer(commands.Bot):
                                 self.queue_map[r.id] = msg.id
                     # Check entries that are now gone
                     for id, msg_id in self.queue_map.items():
-                        print(id, msg_id)
                         if id not in entries:
-                            msg: discord.Message = await channel.get_message(msg_id)
+                            msg: discord.Message = await self.safe_get_message(channel, msg_id)
                             if msg:
                                 await msg.delete()
                 with open("queue.json", "w") as f:
@@ -80,23 +97,35 @@ class ModOverseer(commands.Bot):
                 traceback.print_exc()
                 await asyncio.sleep(60)
 
-    def embed_from_queue_entry(self, entry: QueueEntry):
+    async def safe_get_message(self, channel: discord.TextChannel, message_id: int) -> Optional[discord.Message]:
+        """Finds a message in a channel by its id.
+
+        Instead of throwing a NotFound exception, it just returns None if the message is not found."""
+        try:
+            return await channel.get_message(message_id)
+        except discord.NotFound:
+            return None
+
+    @staticmethod
+    def embed_from_queue_entry(entry: QueueEntry):
+        """Builds a discord embed from a Mod Queue entry."""
         title = entry.post_title
-        if entry.type == "Comment":
+        if entry.type == EntryKind.COMMENT:
             title = f"Comment in '{title}'"
             description = entry.comment_body
             link = entry.comment_link
         else:
             description = entry.post_text
             link = entry.post_link
-        embed = discord.Embed(title=title, description=description, url=link, timestamp=entry.created)
+        color = COMMENT_COLOR if entry.type == EntryKind.COMMENT else LINK_COLOR
+        embed = discord.Embed(title=title, description=description, url=link, timestamp=entry.created, colour=color)
         if entry.thumbnail:
             embed.set_thumbnail(url=entry.thumbnail)
-        embed.set_author(name=entry.comment_author)
+        embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
         if entry.reports:
             embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c in entry.reports))
         if entry.mod_reports:
-            embed.add_field(name="Reports", value="\n".join(f"{a}: {t}" for t, a in entry.mod_reports))
+            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a in entry.mod_reports))
         return embed
 
 
