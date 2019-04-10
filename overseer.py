@@ -31,7 +31,7 @@ LINK_COLOR = discord.colour.Colour.gold()
 
 class ModOverseer(commands.Bot):
     def __init__(self, config):
-        super().__init__(command_prefix="?")
+        super().__init__(command_prefix="?", help_command=None)
         reddit_config = config['Reddit']
         self.subreddit = reddit_config['subreddit']
         self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
@@ -111,7 +111,7 @@ class ModOverseer(commands.Bot):
 
         Instead of throwing a NotFound exception, it just returns None if the message is not found."""
         try:
-            return await channel.get_message(message_id)
+            return await channel.fetch_message(message_id)
         except discord.NotFound:
             return None
 
