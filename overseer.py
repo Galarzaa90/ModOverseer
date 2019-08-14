@@ -18,7 +18,7 @@ file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
 file_handler.suffix = "%Y_%m_%d.log"
 file_handler.setFormatter(logging_formatter)
 
-discord_file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
+discord_file_handler = TimedRotatingFileHandler('logs/discord', when='midnight')
 discord_file_handler.suffix = "%Y_%m_%d.log"
 discord_file_handler.setFormatter(logging_formatter)
 
@@ -106,6 +106,10 @@ class ModOverseer(commands.Bot):
                     await msg.delete()
                 log.info(f"{tag} Entry with id {entry_id} no longer in queue")
                 del self.queue_map[entry_id]
+        original_name = channel.name.split("·", 1)[0]
+        new_name = f"{original_name}·{len(entries)}"
+        if new_name != channel.name:
+            await channel.edit(name=new_name, reason="Queue count changed")
         with open("queue.json", "w") as f:
             json.dump(self.queue_map, f, indent=2)
         await asyncio.sleep(120)
