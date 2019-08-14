@@ -7,7 +7,7 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import Optional
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from reddit import EntryKind, QueueEntry, RedditClient
 
@@ -17,6 +17,11 @@ logging_formatter = logging.Formatter('[%(asctime)s][%(levelname)s] %(message)s'
 file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
 file_handler.suffix = "%Y_%m_%d.log"
 file_handler.setFormatter(logging_formatter)
+
+discord_file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
+discord_file_handler.suffix = "%Y_%m_%d.log"
+discord_file_handler.setFormatter(logging_formatter)
+
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging_formatter)
 
@@ -24,6 +29,10 @@ log = logging.getLogger("overseer")
 log.setLevel(logging.INFO)
 log.addHandler(file_handler)
 log.addHandler(console_handler)
+
+discord_log = logging.getLogger("discord")
+discord_log.setLevel(logging.INFO)
+discord_log.addHandler(discord_file_handler)
 
 COMMENT_COLOR = discord.colour.Colour.green()
 LINK_COLOR = discord.colour.Colour.gold()
@@ -38,6 +47,9 @@ class ModOverseer(commands.Bot):
                                    loop=self.loop)
         self.queue_map = {}
 
+        self.modqueue_check.add_exception_type(Exception)
+        self.modqueue_check.start()
+
     async def on_ready(self):
         """Called when the bot is ready."""
         print('Logged in as')
@@ -51,59 +63,52 @@ class ModOverseer(commands.Bot):
         except FileNotFoundError:
             pass
 
-        self.loop.create_task(self.modqueue_task())
-
-    async def modqueue_task(self):
-        """Scans the mod queue periodically and keeps the queue channel updated."""
-        tag = "[modqueue_task]"
+    @tasks.loop(minutes=2)
+    async def modqueue_check(self):
+        tag = "[modqueue_check]"
         await self.wait_until_ready()
-        while self.is_ready():
-            try:
-                entries = await self.reddit.get_mod_queue(config["Reddit"]["subreddit"])
-                guild: discord.Guild = self.get_guild(int(config["Discord"]["guild_id"]))
-                if guild is None:
-                    log.warning(f"{tag} Could not find discord guild.")
-                    await asyncio.sleep(120)
-                    continue
-                channel: discord.TextChannel = guild.get_channel(int(config["Discord"]["modqueue_channel"]))
-                if channel is None:
-                    log.warning(f"{tag} Could not find channel.")
-                    await asyncio.sleep(120)
-                    continue
-                if entries is None:
-                    log.warning(f"{tag} Failed getting mod queue entries")
-                    await asyncio.sleep(60)
-                    continue
-                for r in entries:
-                    # New entry, add message
-                    if r.id not in self.queue_map:
-                        log.info(f"{tag} Adding new entry with id: {r.id}")
-                        msg = await channel.send(embed=self.embed_from_queue_entry(r))
-                        self.queue_map[r.id] = msg.id
-                    # Existing entry, update message
-                    else:
-                        msg = await self.safe_get_message(channel, self.queue_map[r.id])
-                        if msg:
-                            await msg.edit(embed=self.embed_from_queue_entry(r))
-                        else:
-                            log.info(f"{tag} Message for entry with id {r.id} not found, readding.")
-                            msg = await channel.send(embed=self.embed_from_queue_entry(r))
-                            self.queue_map[r.id] = msg.id
-                # Check entries that are now gone
-                temp = {k: v for k, v in self.queue_map.items()}
-                for entry_id, msg_id in temp.items():
-                    if entry_id not in entries:
-                        msg: discord.Message = await self.safe_get_message(channel, msg_id)
-                        if msg:
-                            await msg.delete()
-                        log.info(f"{tag} Entry with id {entry_id} no longer in queue")
-                        del self.queue_map[entry_id]
-                with open("queue.json", "w") as f:
-                    json.dump(self.queue_map, f, indent=2)
-                await asyncio.sleep(120)
-            except Exception:
-                log.exception(f"{tag} Exception")
-                await asyncio.sleep(60)
+        entries = await self.reddit.get_mod_queue(config["Reddit"]["subreddit"])
+        guild: discord.Guild = self.get_guild(int(config["Discord"]["guild_id"]))
+        if guild is None:
+            log.warning(f"{tag} Could not find discord guild.")
+            await asyncio.sleep(120)
+            return
+        channel: discord.TextChannel = guild.get_channel(int(config["Discord"]["modqueue_channel"]))
+        if channel is None:
+            log.warning(f"{tag} Could not find channel.")
+            await asyncio.sleep(120)
+            return
+        if entries is None:
+            log.warning(f"{tag} Failed getting mod queue entries")
+            await asyncio.sleep(60)
+            return
+        for r in entries:
+            # New entry, add message
+            if r.id not in self.queue_map:
+                log.info(f"{tag} Adding new entry with id: {r.id}")
+                msg = await channel.send(embed=self.embed_from_queue_entry(r))
+                self.queue_map[r.id] = msg.id
+            # Existing entry, update message
+            else:
+                msg = await self.safe_get_message(channel, self.queue_map[r.id])
+                if msg:
+                    await msg.edit(embed=self.embed_from_queue_entry(r))
+                else:
+                    log.info(f"{tag} Message for entry with id {r.id} not found, readding.")
+                    msg = await channel.send(embed=self.embed_from_queue_entry(r))
+                    self.queue_map[r.id] = msg.id
+        # Check entries that are now gone
+        temp = {k: v for k, v in self.queue_map.items()}
+        for entry_id, msg_id in temp.items():
+            if entry_id not in entries:
+                msg: discord.Message = await self.safe_get_message(channel, msg_id)
+                if msg:
+                    await msg.delete()
+                log.info(f"{tag} Entry with id {entry_id} no longer in queue")
+                del self.queue_map[entry_id]
+        with open("queue.json", "w") as f:
+            json.dump(self.queue_map, f, indent=2)
+        await asyncio.sleep(120)
 
     @staticmethod
     async def safe_get_message(channel: discord.TextChannel, message_id: int) -> Optional[discord.Message]:
