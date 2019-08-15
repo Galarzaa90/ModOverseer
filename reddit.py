@@ -6,7 +6,7 @@ import logging
 import aiohttp
 
 ACCESS_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
-BASE_URL = "https://oauth.reddit.com"
+OAUTH_BASE_URL = "https://oauth.reddit.com"
 USER_AGENT = "ModOverseer by /u/Galarzaa"
 
 log = logging.getLogger("overseer")
@@ -76,7 +76,7 @@ class RedditClient:
     async def get_mod_queue(self, subreddit):
         """Gets the current ModQueue contents."""
         log.info(f"[{self.__class__.__name__}] Getting modqueue")
-        async with self.api_session.get(f"{BASE_URL}/r/{subreddit}/about/modqueue") as resp:
+        async with self.api_session.get(f"{OAUTH_BASE_URL}/r/{subreddit}/about/modqueue") as resp:
             js = await resp.json()
             if "error" in js:
                 return None
@@ -91,6 +91,20 @@ class RedditClient:
                 log.exception(f"[{self.__class__.__name__}] Exception while getting mod queue.")
                 return None
 
+    @token_request
+    async def get_subreddit_about(self, subreddit):
+        """Gets the general info of a subreddit."""
+        log.info(f"[{self.__class__.__name__}] Getting subreddit info")
+        async with self.api_session.get(f"{OAUTH_BASE_URL}/r/{subreddit}/about") as resp:
+            js = await resp.json()
+            if "error" in js:
+                return None
+            try:
+                return AboutSubreddit(**js["data"])
+            except Exception as e:
+                log.exception(f"[{self.__class__.__name__}] Exception while getting subreddit's information.")
+                return None
+
     @staticmethod
     def get_user_url(username: str) -> str:
         return f"https://www.reddit.com/u/{username}"
@@ -99,6 +113,12 @@ class RedditClient:
 class EntryKind(enum.Enum):
     LINK = "t3"
     COMMENT = "t1"
+
+
+class AboutSubreddit:
+    def __init__(self, **kwargs):
+        self.subscribers = kwargs.get("subscribers")
+        self.active_users = kwargs.get("accounts_active")
 
 
 class QueueEntry:

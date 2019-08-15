@@ -48,7 +48,7 @@ class ModOverseer(commands.Bot):
         self.queue_map = {}
 
         self.modqueue_check.add_exception_type(Exception)
-        self.modqueue_check.start()
+        self.subreddit_info_check.add_exception_type(Exception)
 
     async def on_ready(self):
         """Called when the bot is ready."""
@@ -62,6 +62,42 @@ class ModOverseer(commands.Bot):
                 self.queue_map = json.load(f)
         except FileNotFoundError:
             pass
+
+        try:
+            self.subreddit_info_check.start()
+        except RuntimeError:
+            pass
+
+        try:
+            self.modqueue_check.start()
+        except RuntimeError:
+            pass
+
+    @tasks.loop(minutes=30)
+    async def subreddit_info_check(self):
+        tag = "[subreddit_info_check]"
+        await self.wait_until_ready()
+        guild: discord.Guild = self.get_guild(int(config["Discord"]["guild_id"]))
+        if guild is None:
+            log.warning(f"{tag} Could not find discord guild.")
+            await asyncio.sleep(120)
+            return
+        channel_id = int(config["Discord"]["subscriber_count_channel"])
+        if not channel_id:
+            return
+        channel: discord.VoiceChannel = guild.get_channel(channel_id)
+        subreddit_info = await self.reddit.get_subreddit_about(config["Reddit"]["subreddit"])
+        if channel is None:
+            log.warning(f"{tag} Could not find channel.")
+            return
+        if subreddit_info is None:
+            log.warning(f"{tag} Failed getting subreddit info")
+            return
+        new_name = f"Subscribers: {subreddit_info.subscribers}"
+        if new_name != channel.name:
+            log.info(f"{tag} Trying to update name")
+            await channel.edit(name=new_name, reason="Subscriber count changed")
+            log.info(f"{tag} Updated channel name to '{new_name}'")
 
     @tasks.loop(minutes=2)
     async def modqueue_check(self):
@@ -112,7 +148,6 @@ class ModOverseer(commands.Bot):
             await channel.edit(name=new_name, reason="Queue count changed")
         with open("queue.json", "w") as f:
             json.dump(self.queue_map, f, indent=2)
-        await asyncio.sleep(120)
 
     @staticmethod
     async def safe_get_message(channel: discord.TextChannel, message_id: int) -> Optional[discord.Message]:
