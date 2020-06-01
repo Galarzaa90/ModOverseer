@@ -63,17 +63,10 @@ class ModOverseer(commands.Bot):
         except FileNotFoundError:
             pass
 
-        try:
-            self.subreddit_info_check.start()
-        except RuntimeError:
-            pass
+        self.subreddit_info_check.start()
+        self.modqueue_check.start()
 
-        try:
-            self.modqueue_check.start()
-        except RuntimeError:
-            pass
-
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=5)
     async def subreddit_info_check(self):
         tag = "[subreddit_info_check]"
         await self.wait_until_ready()
@@ -93,7 +86,7 @@ class ModOverseer(commands.Bot):
         if subreddit_info is None:
             log.warning(f"{tag} Failed getting subreddit info")
             return
-        new_name = f"Subscribers: {subreddit_info.subscribers}"
+        new_name = f"Reddit Subs: {subreddit_info.subscribers:,}"
         if new_name != channel.name:
             log.info(f"{tag} Trying to update name")
             await channel.edit(name=new_name, reason="Subscriber count changed")
