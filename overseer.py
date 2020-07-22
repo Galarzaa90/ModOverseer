@@ -132,7 +132,7 @@ class ModOverseer(commands.Bot):
             if entry_id not in entries:
                 msg: discord.Message = await self.safe_get_message(channel, msg_id)
                 if msg:
-                    await msg.delete()
+                    await self.safe_delete_message(msg)
                 log.info(f"{tag} Entry with id {entry_id} no longer in queue")
                 del self.queue_map[entry_id]
         original_name = channel.name.split("·", 1)[0]
@@ -151,6 +151,14 @@ class ModOverseer(commands.Bot):
             return await channel.fetch_message(message_id)
         except discord.NotFound:
             return None
+
+    @staticmethod
+    async def safe_delete_message(message: discord.Message):
+        """Tries to delete a message, ignoring any errors if it fails."""
+        try:
+            await message.delete()
+        except discord.DiscordException:
+            pass
 
     @staticmethod
     def embed_from_queue_entry(entry: QueueEntry):
