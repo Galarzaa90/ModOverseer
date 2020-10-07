@@ -1,5 +1,6 @@
 import asyncio
 import configparser
+import datetime
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ LINK_COLOR = discord.colour.Colour.gold()
 
 class ModOverseer(commands.Bot):
     def __init__(self, config):
-        super().__init__(command_prefix="?", help_command=None, intents=discord.Intents.none())
+        super().__init__(command_prefix="?", help_command=None, intents=discord.Intents(guilds=True))
         reddit_config = config['Reddit']
         self.subreddit = reddit_config['subreddit']
         self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
@@ -49,6 +50,11 @@ class ModOverseer(commands.Bot):
 
         self.modqueue_check.add_exception_type(Exception)
         self.subreddit_info_check.add_exception_type(Exception)
+        self.last_channel_update = datetime.datetime.now()
+
+    @property
+    def now(self):
+        return datetime.datetime.now()
 
     async def on_ready(self):
         """Called when the bot is ready."""
@@ -66,14 +72,13 @@ class ModOverseer(commands.Bot):
         self.subreddit_info_check.start()
         self.modqueue_check.start()
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=6)
     async def subreddit_info_check(self):
         tag = "[subreddit_info_check]"
         await self.wait_until_ready()
         guild: discord.Guild = self.get_guild(int(config["Discord"]["guild_id"]))
         if guild is None:
             log.warning(f"{tag} Could not find discord guild.")
-            await asyncio.sleep(120)
             return
         channel_id = int(config["Discord"]["subscriber_count_channel"])
         if not channel_id:
@@ -100,16 +105,13 @@ class ModOverseer(commands.Bot):
         guild: discord.Guild = self.get_guild(int(config["Discord"]["guild_id"]))
         if guild is None:
             log.warning(f"{tag} Could not find discord guild.")
-            await asyncio.sleep(120)
             return
         channel: discord.TextChannel = guild.get_channel(int(config["Discord"]["modqueue_channel"]))
         if channel is None:
             log.warning(f"{tag} Could not find channel.")
-            await asyncio.sleep(120)
             return
         if entries is None:
             log.warning(f"{tag} Failed getting mod queue entries")
-            await asyncio.sleep(60)
             return
         for r in entries:
             # New entry, add message
@@ -137,8 +139,10 @@ class ModOverseer(commands.Bot):
                 del self.queue_map[entry_id]
         original_name = channel.name.split("·", 1)[0]
         new_name = f"{original_name}·{len(entries)}"
-        if new_name != channel.name:
+        # Only update channel every 5 minutes, as the rate limit is 2 every 10 minutes.
+        if new_name != channel.name and (self.now - self.last_channel_update) > datetime.timedelta(minutes=5):
             await channel.edit(name=new_name, reason="Queue count changed")
+            self.last_channel_update = self.now
         with open("queue.json", "w") as f:
             json.dump(self.queue_map, f, indent=2)
 
