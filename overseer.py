@@ -1,4 +1,3 @@
-import asyncio
 import configparser
 import datetime
 import json
@@ -15,12 +14,13 @@ from reddit import EntryKind, QueueEntry, RedditClient
 os.makedirs("logs", exist_ok=True)
 
 logging_formatter = logging.Formatter('[%(asctime)s][%(levelname)s] %(message)s')
+logging_suffix = "%Y_%m_%d.log"
 file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
-file_handler.suffix = "%Y_%m_%d.log"
+file_handler.suffix = logging_suffix
 file_handler.setFormatter(logging_formatter)
 
 discord_file_handler = TimedRotatingFileHandler('logs/discord', when='midnight')
-discord_file_handler.suffix = "%Y_%m_%d.log"
+discord_file_handler.suffix = logging_suffix
 discord_file_handler.setFormatter(logging_formatter)
 
 console_handler = logging.StreamHandler()
@@ -197,6 +197,7 @@ if __name__ == "__main__":
     try:
         token = config['Discord']['token']
     except KeyError:
+        token = None
         print("Discord token not found")
         exit()
     bot.run(token)
