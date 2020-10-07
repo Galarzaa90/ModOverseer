@@ -31,7 +31,7 @@ LINK_COLOR = discord.colour.Colour.gold()
 
 class ModOverseer(commands.Bot):
     def __init__(self, config):
-        super().__init__(command_prefix="?", help_command=None)
+        super().__init__(command_prefix="?", help_command=None, intents=discord.Intents.none())
         reddit_config = config['Reddit']
         self.subreddit = reddit_config['subreddit']
         self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
