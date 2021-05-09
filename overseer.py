@@ -181,9 +181,9 @@ class ModOverseer(commands.Bot):
             embed.set_thumbnail(url=entry.thumbnail)
         embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
         if entry.reports:
-            embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c in entry.reports))
+            embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c, *_ in entry.reports))
         if entry.mod_reports:
-            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a in entry.mod_reports))
+            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a, *_ in entry.mod_reports))
         embed.set_footer(text=f"Score: {entry.score}")
         return embed
 
