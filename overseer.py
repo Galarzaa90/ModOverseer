@@ -4,12 +4,12 @@ import json
 import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
-from typing import Optional
+from typing import Optional, Union
 
 import discord
 from discord.ext import commands
 
-from reddit import EntryKind, QueueEntry, RedditClient
+from reddit import QueueCommentEntry, QueueLinkEntry, RedditClient
 
 os.makedirs("logs", exist_ok=True)
 
@@ -31,12 +31,20 @@ LINK_COLOR = discord.colour.Colour.gold()
 
 class ModOverseer(commands.Bot):
     def __init__(self, config):
-        super().__init__(command_prefix="?", help_command=None, intents=discord.Intents.none())
+        super().__init__(command_prefix="?", help_command=None, intents=discord.Intents(
+            guilds=True,
+        ))
         reddit_config = config['Reddit']
         self.subreddit = reddit_config['subreddit']
-        self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
-                                   loop=self.loop)
+        self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'])
         self.queue_map = {}
+
+    async def setup_hook(self) -> None:
+        await self.reddit.start()
+        self.loop.create_task(self.modqueue_task())
+
+    async def close(self) -> None:
+        await self.reddit.stop()
 
     async def on_ready(self):
         """Called when the bot is ready."""
@@ -50,8 +58,6 @@ class ModOverseer(commands.Bot):
                 self.queue_map = json.load(f)
         except FileNotFoundError:
             pass
-
-        self.loop.create_task(self.modqueue_task())
 
     async def modqueue_task(self):
         """Scans the mod queue periodically and keeps the queue channel updated."""
@@ -69,10 +75,6 @@ class ModOverseer(commands.Bot):
                 if channel is None:
                     log.warning(f"{tag} Could not find channel.")
                     await asyncio.sleep(120)
-                    continue
-                if entries is None:
-                    log.warning(f"{tag} Failed getting mod queue entries")
-                    await asyncio.sleep(60)
                     continue
                 for r in entries:
                     # New entry, add message
@@ -116,25 +118,25 @@ class ModOverseer(commands.Bot):
             return None
 
     @staticmethod
-    def embed_from_queue_entry(entry: QueueEntry):
+    def embed_from_queue_entry(entry: Union[QueueCommentEntry, QueueLinkEntry]):
         """Builds a discord embed from a Mod Queue entry."""
         title = entry.post_title
-        if entry.type == EntryKind.COMMENT:
+        if isinstance(entry.type, QueueCommentEntry):
             title = f"Comment in '{title}'"
             description = entry.comment_body
             link = entry.comment_link
         else:
             description = entry.post_text
             link = entry.post_link
-        color = COMMENT_COLOR if entry.type == EntryKind.COMMENT else LINK_COLOR
+        color = COMMENT_COLOR if isinstance(entry.type, QueueCommentEntry) else LINK_COLOR
         embed = discord.Embed(title=title, description=description, url=link, timestamp=entry.created, colour=color)
         if entry.thumbnail:
             embed.set_thumbnail(url=entry.thumbnail)
         embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
         if entry.reports:
-            embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c in entry.reports))
+            embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c, _, _ in entry.user_reports))
         if entry.mod_reports:
-            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a in entry.mod_reports))
+            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a, _, _ in entry.mod_reports))
         embed.set_footer(text=f"Score: {entry.score}")
         return embed
 

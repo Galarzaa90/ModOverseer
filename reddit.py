@@ -1,9 +1,11 @@
-import asyncio
 import datetime
 import enum
 import logging
+from abc import ABC, ABCMeta, abstractmethod, abstractproperty
+from typing import Annotated, List, Literal, Optional, Tuple, Union
 
 import aiohttp
+from pydantic import BaseModel, Field
 
 ACCESS_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 BASE_URL = "https://oauth.reddit.com"
@@ -41,15 +43,23 @@ class RedditClient:
         :param secret: The application's client secret.
         :param loop: The event loop used by the client.
         """
+        self.auth_session = None
         self.refresh_token = refresh_token
         self.auth = aiohttp.BasicAuth(client, secret)
         self.client = client
         self.secret = secret
-        self.loop = loop or asyncio.get_event_loop()
-        self.auth_session = aiohttp.ClientSession(loop=self.loop, auth=self.auth, headers={'User-Agent': USER_AGENT})
-        self.api_session = None
+        self.auth_session: aiohttp.ClientSession = None
+        self.api_session: aiohttp.ClientSession = None
         self.expire_time = None
         self.token = None
+
+    async def start(self):
+        self.auth_session = aiohttp.ClientSession(auth=self.auth, headers={'User-Agent': USER_AGENT})
+
+    async def stop(self):
+        await self.auth_session.close()
+        if self.api_session:
+            await self.api_session.close()
 
     async def get_access_token(self):
         """Gets a new access token using the current refresh token."""
@@ -63,9 +73,10 @@ class RedditClient:
                 data = await resp.json()
                 self.token = data['access_token']
                 self.expire_time = datetime.datetime.now() + datetime.timedelta(seconds=data['expires_in'] - 10)
-                self.api_session = aiohttp.ClientSession(loop=self.loop,
-                                                         headers={'User-Agent': USER_AGENT,
-                                                                  'Authorization': f'bearer {self.token}'})
+                self.api_session = aiohttp.ClientSession(headers={
+                    'User-Agent': USER_AGENT,
+                    'Authorization': f'bearer {self.token}'
+                })
                 log.info(f"[{self.__class__.__name__}] Access token obtained.")
                 return True
         except Exception as e:
@@ -73,23 +84,19 @@ class RedditClient:
             return False
 
     @token_request
-    async def get_mod_queue(self, subreddit):
+    async def get_mod_queue(self, subreddit) -> List[Union['QueueCommentEntry', 'QueueLinkEntry']]:
         """Gets the current ModQueue contents."""
         log.info(f"[{self.__class__.__name__}] Getting modqueue")
         async with self.api_session.get(f"{BASE_URL}/r/{subreddit}/about/modqueue") as resp:
+            resp.raise_for_status()
             js = await resp.json()
-            if "error" in js:
-                return None
             try:
-                children = js["data"]["children"]
-                results = []
-                for c in children:
-                    results.append(QueueEntry(kind=c["kind"], **c["data"]))
-                log.info(f"[{self.__class__.__name__}] {len(results)} queue entries found.")
-                return results
-            except Exception as e:
+                listing = RedditListing.model_validate(js)
+                log.info(f"[{self.__class__.__name__}] {len(listing.data.children)} queue entries found.")
+                return listing.data.children
+            except Exception:
                 log.exception(f"[{self.__class__.__name__}] Exception while getting mod queue.")
-                return None
+                raise
 
     @staticmethod
     def get_user_url(username: str) -> str:
@@ -101,49 +108,191 @@ class EntryKind(enum.Enum):
     COMMENT = "t1"
 
 
-class QueueEntry:
-    def __init__(self, kind, **kwargs):
-        self.comment_link = None
-        permalink = kwargs.get("permalink")
-        self.type = EntryKind(kind)
-        if self.type == EntryKind.LINK:
-            self.post_title = kwargs.get("title")
-            self.post_author = kwargs.get("author")
-            self.post_text = kwargs.get("selftext")
-            if permalink:
-                self.post_link = f"https://reddit.com{permalink}"
+class CommonQueueEntry(metaclass=ABCMeta):
 
-        if self.type == EntryKind.COMMENT:
-            self.post_title = kwargs.get("link_title")
-            self.post_link = kwargs.get("link_url")
-            self.post_author = kwargs.get("link_author")
-            if permalink:
-                self.comment_link = f"https://reddit.com{permalink}"
+    @property
+    @abstractmethod
+    def id(self):
+        ...
 
-        # Post type only
-        self.is_self = kwargs.get("is_self", False)
-        self.thumbnail = kwargs.get("thumbnail")
-        if self.thumbnail == "self":
-            self.thumbnail = None
+    @property
+    @abstractmethod
+    def post_title(self):
+        ...
 
-        # Comment type only
-        self.comment_author = kwargs.get("author")
-        self.comment_body = kwargs.get("body")
+    @property
+    @abstractmethod
+    def post_author(self):
+        ...
 
-        # Any type
-        self.reports = kwargs.get("user_reports", [])
-        self.mod_reports = kwargs.get("mod_reports", [])
-        self.post_text = kwargs.get("selftext")
-        self.comments = kwargs.get("num_comments")
-        self.ignore_reports = kwargs.get("ignore_reports")
-        self.approved = kwargs.get("approved")
-        self.created = datetime.datetime.utcfromtimestamp(kwargs.get("created_utc"))
-        self.id = kwargs.get("id")
-        self.score: int = kwargs.get("score", 0)
+    @property
+    @abstractmethod
+    def created(self):
+        ...
 
-    def __eq__(self, o: object) -> bool:
-        if isinstance(o, self.__class__):
-            return self.id == o.id
-        if isinstance(o, str):
-            return self.id == o
-        return False
+    @property
+    @abstractmethod
+    def user_reports(self):
+        ...
+
+    @property
+    @abstractmethod
+    def score(self):
+        ...
+
+
+class CommonData(BaseModel):
+    user_reports: List[Tuple[str, int, bool, bool]]
+    mod_reports: List[Tuple[str, str, bool, bool]]
+    ups: int
+    score: int
+    approved_by: Optional[str]
+    approved: bool
+    created_utc: datetime.datetime
+    permalink: str
+    num_reports: int
+    mod_reason_by: Optional[str]
+    removed: bool
+    id: str
+
+
+class CommentData(CommonData):
+    approved_at_utc: Optional[datetime.datetime]
+    author_is_blocked: bool
+    edited: bool
+    banned_by: Optional[bool] = None
+    author_flair_type: str
+    total_awards_received: int
+    author: str
+    link_author: str
+    likes: Optional[int]
+    ban_note: Optional[str] = None
+    banned_at_utc: Optional[datetime.datetime]
+    mod_reason_title: Optional[str]
+    num_comments: int
+    parent_id: str
+    author_fullname: str
+    body: str
+    link_title: str
+    name: str
+    downs: int
+    is_submitter: bool
+    link_id: str
+    score_hidden: bool
+    link_permalink: str
+    report_reasons: List
+    created: datetime.datetime
+    link_url: str
+    locked: bool
+    mod_reports: List
+
+
+class QueueCommentEntry(BaseModel, CommonQueueEntry):
+    kind: Literal['t1']
+    data: CommentData
+
+    @property
+    def id(self):
+        return self.data.id
+
+    @property
+    def post_title(self):
+        return self.data.link_title
+
+    @property
+    def post_author(self):
+        return self.data.link_author
+
+    @property
+    def created(self):
+        return self.data.created_utc
+
+    @property
+    def user_reports(self):
+        return self.data.user_reports
+
+    @property
+    def score(self):
+        return self.data.score
+
+    @property
+    def comment_body(self):
+        return self.data.body
+
+    @property
+    def comment_author(self):
+        return self.data.author
+
+    @property
+    def comment_url(self):
+        return self.data.link_permalink
+
+
+class LinkData(CommonData):
+    approved_at_utc: Optional[datetime.datetime]
+    selftext: str
+    title: str
+    upvote_ratio: float
+    ignore_reports: bool
+    is_original_content: bool
+    author_is_blocked: bool
+    author: str
+    url: str
+    is_self: bool
+    thumbnail: str
+
+
+class QueueLinkEntry(BaseModel, CommonQueueEntry):
+    kind: Literal['t3']
+    data: LinkData
+
+    @property
+    def id(self):
+        return self.data.id
+
+    @property
+    def post_title(self):
+        return self.data.title
+
+    @property
+    def post_author(self):
+        return self.data.author
+
+    @property
+    def created(self):
+        return self.data.created_utc
+
+    @property
+    def user_reports(self):
+        return self.data.user_reports
+
+    @property
+    def score(self):
+        return self.data.score
+
+    @property
+    def post_text(self):
+        return self.data.selftext
+
+    @property
+    def post_link(self):
+        return self.data.url
+
+    @property
+    def thumbnail(self):
+        return self.data.thumbnail
+
+
+ListingDataChildren = Annotated[
+    Union[QueueCommentEntry, QueueLinkEntry],
+    Field(discriminator="kind")
+]
+
+
+class ListingData(BaseModel):
+    children: List[ListingDataChildren]
+
+
+class RedditListing(BaseModel):
+    kind: Literal["Listing"]
+    data: ListingData
