@@ -9,6 +9,11 @@ from typing import Optional, Union
 import discord
 from discord.ext import commands
 
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
+
 from reddit import QueueCommentEntry, QueueLinkEntry, RedditClient
 
 os.makedirs("logs", exist_ok=True)
@@ -28,6 +33,17 @@ log.addHandler(console_handler)
 COMMENT_COLOR = discord.colour.Colour.green()
 LINK_COLOR = discord.colour.Colour.gold()
 
+if sentry_sdk and os.getenv("SENTRY_DSN"):
+    sentry_sdk.init(
+        dsn=os.getenv("SENTRY_DSN"),
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for performance monitoring.
+        traces_sample_rate=1.0,
+        # Set profiles_sample_rate to 1.0 to profile 100%
+        # of sampled transactions.
+        # We recommend adjusting this value in production.
+        profiles_sample_rate=1.0,
+    )
 
 class ModOverseer(commands.Bot):
     def __init__(self, config):
