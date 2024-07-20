@@ -31,6 +31,7 @@ jobs:
             ghcr.io/${{ github.repository }}
             ${{ vars.DOCKER_HUB_USERNAME }}/${{ vars.DOCKER_HUB_REPO }}
           tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=pep440,pattern={{version}}
