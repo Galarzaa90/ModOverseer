@@ -3,6 +3,7 @@ import configparser
 import json
 import logging
 import os
+from json import JSONDecodeError
 from logging.handlers import TimedRotatingFileHandler
 from typing import Optional, Union
 
@@ -72,7 +73,7 @@ class ModOverseer(commands.Bot):
         try:
             with open("queue.json") as f:
                 self.queue_map = json.load(f)
-        except FileNotFoundError:
+        except (FileNotFoundError, JSONDecodeError):
             pass
 
     async def modqueue_task(self):
