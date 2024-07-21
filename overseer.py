@@ -205,21 +205,18 @@ class ModOverseer(commands.Bot):
     @staticmethod
     def embed_from_queue_entry(entry: Union[QueueCommentEntry, QueueLinkEntry]):
         """Builds a discord embed from a Mod Queue entry."""
-        title = entry.post_title
-        thumbnail = None
+        embed = discord.Embed(title=entry.post_title, timestamp=entry.created)
         if isinstance(entry, QueueCommentEntry):
-            title = f"Comment in '{title}'"
-            description = entry.comment_body
-            link = entry.data.link_permalink
+            embed.title = f"Comment in '{entry.post_title}'"
+            embed.description = entry.comment_body
+            embed.url = entry.comment_url
+            embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
         else:
-            description = entry.post_text
-            link = entry.data.permalink
-            thumbnail = entry.data.thumbnail
-        color = COMMENT_COLOR if isinstance(entry, QueueCommentEntry) else LINK_COLOR
-        embed = discord.Embed(title=title, description=description, url=link, timestamp=entry.created, colour=color)
-        if thumbnail:
-            embed.set_thumbnail(url=thumbnail)
-        embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
+            embed.description = entry.post_text
+            embed.url = entry.post_url
+            embed.set_thumbnail(url=entry.data.thumbnail)
+            embed.set_author(name=f"u/{entry.post_author}", url=RedditClient.get_user_url(entry.post_author))
+        embed.colour = COMMENT_COLOR if isinstance(entry, QueueCommentEntry) else LINK_COLOR
         if entry.user_reports:
             embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c, _, _ in entry.user_reports))
         if entry.mod_reports:

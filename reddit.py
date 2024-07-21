@@ -1,5 +1,6 @@
 import datetime
 import enum
+import html
 import logging
 from abc import ABC, ABCMeta, abstractmethod, abstractproperty
 from typing import Annotated, List, Literal, Optional, Tuple, Union
@@ -96,7 +97,6 @@ class RedditClient:
             except Exception:
                 log.exception(f"[{self.__class__.__name__}] Exception while getting mod queue.")
                 raise
-                return None
 
     @token_request
     async def get_subreddit_about(self, subreddit):
@@ -110,7 +110,7 @@ class RedditClient:
                 return AboutSubreddit(**js["data"])
             except Exception as e:
                 log.exception(f"[{self.__class__.__name__}] Exception while getting subreddit's information.")
-                return None
+                raise
 
     @staticmethod
     def get_user_url(username: str) -> str:
@@ -144,6 +144,11 @@ class CommonQueueEntry(metaclass=ABCMeta):
     @property
     @abstractmethod
     def post_author(self):
+        ...
+
+    @property
+    @abstractmethod
+    def post_url(self):
         ...
 
     @property
@@ -223,11 +228,15 @@ class QueueCommentEntry(BaseModel, CommonQueueEntry):
 
     @property
     def post_title(self):
-        return self.data.link_title
+        return html.unescape(self.data.link_title)
 
     @property
     def post_author(self):
         return self.data.link_author
+
+    @property
+    def post_url(self):
+        return self.data.link_permalink
 
     @property
     def created(self):
@@ -255,7 +264,7 @@ class QueueCommentEntry(BaseModel, CommonQueueEntry):
 
     @property
     def comment_url(self):
-        return self.data.link_permalink
+        return f"https://reddit.com{self.data.permalink}"
 
 
 class LinkData(CommonData):
@@ -282,7 +291,7 @@ class QueueLinkEntry(BaseModel, CommonQueueEntry):
 
     @property
     def post_title(self):
-        return self.data.title
+        return html.unescape(self.data.title)
 
     @property
     def post_author(self):
@@ -309,7 +318,7 @@ class QueueLinkEntry(BaseModel, CommonQueueEntry):
         return self.data.selftext
 
     @property
-    def post_link(self):
+    def post_url(self):
         return self.data.url
 
     @property
