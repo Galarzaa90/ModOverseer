@@ -1,5 +1,6 @@
 import asyncio
 import configparser
+import datetime
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ from logging.handlers import TimedRotatingFileHandler
 from typing import Optional, Union
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 try:
     import sentry_sdk
@@ -20,9 +21,15 @@ from reddit import QueueCommentEntry, QueueLinkEntry, RedditClient
 os.makedirs("logs", exist_ok=True)
 
 logging_formatter = logging.Formatter('[%(asctime)s][%(levelname)s] %(message)s')
+logging_suffix = "%Y_%m_%d.log"
 file_handler = TimedRotatingFileHandler('logs/overseer', when='midnight')
-file_handler.suffix = "%Y_%m_%d.log"
+file_handler.suffix = logging_suffix
 file_handler.setFormatter(logging_formatter)
+
+discord_file_handler = TimedRotatingFileHandler('logs/discord', when='midnight')
+discord_file_handler.suffix = logging_suffix
+discord_file_handler.setFormatter(logging_formatter)
+
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging_formatter)
 
@@ -30,6 +37,10 @@ log = logging.getLogger("overseer")
 log.setLevel(logging.INFO)
 log.addHandler(file_handler)
 log.addHandler(console_handler)
+
+discord_log = logging.getLogger("discord")
+discord_log.setLevel(logging.INFO)
+discord_log.addHandler(discord_file_handler)
 
 COMMENT_COLOR = discord.colour.Colour.green()
 LINK_COLOR = discord.colour.Colour.gold()
@@ -53,12 +64,20 @@ class ModOverseer(commands.Bot):
         ))
         reddit_config = config['Reddit']
         self.subreddit = reddit_config['subreddit']
-        self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'])
+        self.reddit = RedditClient(reddit_config['refresh_token'], reddit_config['client_id'], reddit_config['secret'],
+                                   loop=self.loop)
         self.queue_map = {}
+
+        self.modqueue_check.add_exception_type(Exception)
+        self.subreddit_info_check.add_exception_type(Exception)
+        self.last_channel_update = datetime.datetime.now()
+
+    @property
+    def now(self):
+        return datetime.datetime.now()
 
     async def setup_hook(self) -> None:
         await self.reddit.start()
-        self.loop.create_task(self.modqueue_task())
 
     async def close(self) -> None:
         await self.reddit.stop()
@@ -76,9 +95,39 @@ class ModOverseer(commands.Bot):
         except (FileNotFoundError, JSONDecodeError):
             pass
 
-    async def modqueue_task(self):
-        """Scans the mod queue periodically and keeps the queue channel updated."""
-        tag = "[modqueue_task]"
+        self.subreddit_info_check.start()
+        self.modqueue_check.start()
+
+
+    @tasks.loop(minutes=6)
+    async def subreddit_info_check(self):
+        tag = "[subreddit_info_check]"
+        await self.wait_until_ready()
+        guild: discord.Guild = self.get_guild(int(config["Discord"]["guild_id"]))
+        if guild is None:
+            log.warning(f"{tag} Could not find discord guild.")
+            return
+        channel_id = int(config["Discord"]["subscriber_count_channel"])
+        if not channel_id:
+            return
+        channel: discord.VoiceChannel = guild.get_channel(channel_id)
+        subreddit_info = await self.reddit.get_subreddit_about(config["Reddit"]["subreddit"])
+        if channel is None:
+            log.warning(f"{tag} Could not find channel.")
+            return
+        if subreddit_info is None:
+            log.warning(f"{tag} Failed getting subreddit info")
+            return
+        new_name = f"Reddit Subs: {subreddit_info.subscribers:,}"
+        if new_name != channel.name:
+            log.info(f"{tag} Trying to update name")
+            await channel.edit(name=new_name, reason="Subscriber count changed")
+            log.info(f"{tag} Updated channel name to '{new_name}'")
+
+
+    @tasks.loop(minutes=6)
+    async def modqueue_check(self):
+        tag = "[subreddit_info_check]"
         await self.wait_until_ready()
         while self.is_ready():
             try:
@@ -92,6 +141,10 @@ class ModOverseer(commands.Bot):
                 if channel is None:
                     log.warning(f"{tag} Could not find channel.")
                     await asyncio.sleep(120)
+                    continue
+                if entries is None:
+                    log.warning(f"{tag} Failed getting mod queue entries")
+                    await asyncio.sleep(60)
                     continue
                 for r in entries:
                     # New entry, add message
@@ -117,6 +170,12 @@ class ModOverseer(commands.Bot):
                             await msg.delete()
                         log.info(f"{tag} Entry with id {entry_id} no longer in queue")
                         del self.queue_map[entry_id]
+                original_name = channel.name.split("·", 1)[0]
+                new_name = f"{original_name}·{len(entries)}"
+                # Only update channel every 5 minutes, as the rate limit is 2 every 10 minutes.
+                if new_name != channel.name and (self.now - self.last_channel_update) > datetime.timedelta(minutes=5):
+                    await channel.edit(name=new_name, reason="Queue count changed")
+                    self.last_channel_update = self.now
                 with open("queue.json", "w") as f:
                     json.dump(self.queue_map, f, indent=2)
                 await asyncio.sleep(120)
@@ -133,6 +192,14 @@ class ModOverseer(commands.Bot):
             return await channel.fetch_message(message_id)
         except discord.NotFound:
             return None
+
+    @staticmethod
+    async def safe_delete_message(message: discord.Message):
+        """Tries to delete a message, ignoring any errors if it fails."""
+        try:
+            await message.delete()
+        except discord.DiscordException:
+            pass
 
     @staticmethod
     def embed_from_queue_entry(entry: Union[QueueCommentEntry, QueueLinkEntry]):
@@ -169,6 +236,7 @@ if __name__ == "__main__":
     try:
         token = config['Discord']['token']
     except KeyError:
+        token = None
         print("Discord token not found")
         exit()
     bot.run(token)
