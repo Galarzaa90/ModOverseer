@@ -70,7 +70,7 @@ class ModOverseer(commands.Bot):
 
         self.modqueue_check.add_exception_type(Exception)
         self.subreddit_info_check.add_exception_type(Exception)
-        self.last_channel_update = datetime.datetime.now()
+        self.last_channel_update = self.now
 
     @property
     def now(self):
@@ -163,8 +163,9 @@ class ModOverseer(commands.Bot):
                             self.queue_map[r.id] = msg.id
                 # Check entries that are now gone
                 temp = {k: v for k, v in self.queue_map.items()}
+                current_ids = [e.id for e in entries]
                 for entry_id, msg_id in temp.items():
-                    if entry_id not in entries:
+                    if entry_id not in current_ids:
                         msg: discord.Message = await self.safe_get_message(channel, msg_id)
                         if msg:
                             await msg.delete()
@@ -219,7 +220,7 @@ class ModOverseer(commands.Bot):
         if thumbnail:
             embed.set_thumbnail(url=thumbnail)
         embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
-        if entry.reports:
+        if entry.user_reports:
             embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c, _, _ in entry.user_reports))
         if entry.mod_reports:
             embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a, _, _ in entry.mod_reports))

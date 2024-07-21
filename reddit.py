@@ -43,7 +43,6 @@ class RedditClient:
         :param secret: The application's client secret.
         :param loop: The event loop used by the client.
         """
-        self.auth_session = None
         self.refresh_token = refresh_token
         self.auth = aiohttp.BasicAuth(client, secret)
         self.client = client
@@ -159,6 +158,12 @@ class CommonQueueEntry(metaclass=ABCMeta):
 
     @property
     @abstractmethod
+    def mod_reports(self):
+        ...
+
+
+    @property
+    @abstractmethod
     def score(self):
         ...
 
@@ -206,7 +211,6 @@ class CommentData(CommonData):
     created: datetime.datetime
     link_url: str
     locked: bool
-    mod_reports: List
 
 
 class QueueCommentEntry(BaseModel, CommonQueueEntry):
@@ -232,6 +236,10 @@ class QueueCommentEntry(BaseModel, CommonQueueEntry):
     @property
     def user_reports(self):
         return self.data.user_reports
+
+    @property
+    def mod_reports(self):
+        return self.data.mod_reports
 
     @property
     def score(self):
@@ -287,6 +295,10 @@ class QueueLinkEntry(BaseModel, CommonQueueEntry):
     @property
     def user_reports(self):
         return self.data.user_reports
+
+    @property
+    def mod_reports(self):
+        return self.data.mod_reports
 
     @property
     def score(self):
