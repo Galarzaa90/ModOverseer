@@ -138,6 +138,7 @@ class ModOverseer(commands.Bot):
     def embed_from_queue_entry(entry: Union[QueueCommentEntry, QueueLinkEntry]):
         """Builds a discord embed from a Mod Queue entry."""
         title = entry.post_title
+        thumbnail = None
         if isinstance(entry, QueueCommentEntry):
             title = f"Comment in '{title}'"
             description = entry.comment_body
@@ -145,10 +146,11 @@ class ModOverseer(commands.Bot):
         else:
             description = entry.post_text
             link = entry.data.permalink
+            thumbnail = entry.data.thumbnail
         color = COMMENT_COLOR if isinstance(entry, QueueCommentEntry) else LINK_COLOR
         embed = discord.Embed(title=title, description=description, url=link, timestamp=entry.created, colour=color)
-        if entry.thumbnail:
-            embed.set_thumbnail(url=entry.thumbnail)
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
         embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
         if entry.reports:
             embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c, _, _ in entry.user_reports))
