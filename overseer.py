@@ -220,7 +220,7 @@ class ModOverseer(commands.Bot):
         if entry.user_reports:
             embed.add_field(name="Reports", value="\n".join(f"{c}: {t}" for t, c, _, _ in entry.user_reports))
         if entry.mod_reports:
-            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a, _, _ in entry.mod_reports))
+            embed.add_field(name="Mod Reports", value="\n".join(f"{a}: {t}" for t, a in entry.mod_reports))
         embed.set_footer(text=f"Score: {entry.score}")
         return embed
 

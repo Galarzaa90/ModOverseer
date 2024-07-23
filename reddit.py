@@ -175,7 +175,7 @@ class CommonQueueEntry(metaclass=ABCMeta):
 
 class CommonData(BaseModel):
     user_reports: List[Tuple[str, int, bool, bool]]
-    mod_reports: List[Tuple[str, str, bool, bool]]
+    mod_reports: List[Tuple[str, str]]
     ups: int
     score: int
     approved_by: Optional[str]
