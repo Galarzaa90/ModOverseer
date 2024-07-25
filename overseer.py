@@ -214,7 +214,7 @@ class ModOverseer(commands.Bot):
         else:
             embed.description = entry.post_text
             embed.url = entry.post_url
-            if entry.data.thumbnail != "self":
+            if entry.data.thumbnail.startswith("http"):
                 embed.set_thumbnail(url=entry.data.thumbnail)
             embed.set_author(name=f"u/{entry.post_author}", url=RedditClient.get_user_url(entry.post_author))
         embed.colour = COMMENT_COLOR if isinstance(entry, QueueCommentEntry) else LINK_COLOR
