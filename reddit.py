@@ -191,7 +191,7 @@ class CommonData(BaseModel):
 class CommentData(CommonData):
     approved_at_utc: Optional[datetime.datetime]
     author_is_blocked: bool
-    edited: bool
+    edited: Union[bool | float]
     banned_by: Optional[bool] = None
     author_flair_type: str
     total_awards_received: int
