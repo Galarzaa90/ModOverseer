@@ -208,11 +208,11 @@ class ModOverseer(commands.Bot):
         embed = discord.Embed(title=entry.post_title, timestamp=entry.created)
         if isinstance(entry, QueueCommentEntry):
             embed.title = f"Comment in '{entry.post_title}'"
-            embed.description = entry.comment_body
+            embed.description = constrain(entry.comment_body, 2000)
             embed.url = entry.comment_url
             embed.set_author(name=f"u/{entry.comment_author}", url=RedditClient.get_user_url(entry.comment_author))
         else:
-            embed.description = entry.post_text
+            embed.description = constrain(entry.post_text, 2000)
             embed.url = entry.post_url
             if entry.data.thumbnail.startswith("http"):
                 embed.set_thumbnail(url=entry.data.thumbnail)
@@ -225,6 +225,10 @@ class ModOverseer(commands.Bot):
         embed.set_footer(text=f"Score: {entry.score}")
         return embed
 
+
+def constrain(content: str, limit: int):
+    """Limit a string's length."""
+    return content if len(content) < limit else f"{content[:limit - 3]}[…]"
 
 if __name__ == "__main__":
     config = configparser.ConfigParser()
