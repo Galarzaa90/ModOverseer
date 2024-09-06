@@ -192,7 +192,7 @@ class CommentData(CommonData):
     approved_at_utc: Optional[datetime.datetime]
     author_is_blocked: bool
     edited: Union[bool | float]
-    banned_by: Optional[bool] = None
+    banned_by: Optional[Union[bool, str]] = None
     author_flair_type: str
     total_awards_received: int
     author: str
